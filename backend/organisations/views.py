@@ -62,6 +62,8 @@ class OrganisationListCreateView(generics.ListCreateAPIView):
 	permission_classes = [IsOrganisationAdmin]
 
 	def get_queryset(self):
+		if self.request.method == "GET":
+			return Organisation.objects.all()
 		if self.request.user.is_superuser:
 			return self.queryset
 		return self.queryset.filter(
@@ -70,6 +72,8 @@ class OrganisationListCreateView(generics.ListCreateAPIView):
 		).distinct()
 
 	def get_permissions(self):
+		if self.request.method == "GET":
+			return [IsAuthenticated()]
 		if self.request.method == "POST":
 			return [IsAuthenticated()]
 		return [permission() for permission in self.permission_classes]

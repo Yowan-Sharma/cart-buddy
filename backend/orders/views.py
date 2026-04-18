@@ -11,6 +11,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from core.filters import OrganisationFilterBackend
 
 from organisations.models import MembershipRole, MembershipStatus, OrganisationMembership
 
@@ -66,42 +67,13 @@ def _is_order_member(user, order):
 class OrderListCreateView(generics.ListCreateAPIView):
 	serializer_class = OrderSerializer
 	permission_classes = [IsAuthenticated]
+	filter_backends = [OrganisationFilterBackend]
 
 	def get_queryset(self):
 		queryset = (
 			Order.objects.select_related("creator", "organisation", "campus")
 			.annotate(participants_count=Count("participants", distinct=True), items_count=Count("items", distinct=True))
-			.all()
 		)
-
-		user = self.request.user
-		if not user.is_superuser:
-			queryset = queryset.filter(
-				Q(creator=user)
-				| Q(participants__user=user)
-				| Q(
-					organisation__memberships__user=user,
-					organisation__memberships__status=MembershipStatus.ACTIVE,
-				)
-			).distinct()
-
-		organisation_id = self.request.query_params.get("organisation")
-		campus_id = self.request.query_params.get("campus")
-		status_filter = self.request.query_params.get("status")
-		created_by_me = self.request.query_params.get("created_by_me")
-		my_orders = self.request.query_params.get("my_orders")
-
-		if organisation_id:
-			queryset = queryset.filter(organisation_id=organisation_id)
-		if campus_id:
-			queryset = queryset.filter(campus_id=campus_id)
-		if status_filter:
-			queryset = queryset.filter(status=status_filter)
-		if created_by_me == "true":
-			queryset = queryset.filter(creator=user)
-		if my_orders == "true":
-			queryset = queryset.filter(Q(creator=user) | Q(participants__user=user)).distinct()
-
 		return queryset
 
 	@transaction.atomic
@@ -135,23 +107,14 @@ class OrderListCreateView(generics.ListCreateAPIView):
 class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
 	serializer_class = OrderSerializer
 	permission_classes = [IsAuthenticated]
+	filter_backends = [OrganisationFilterBackend]
 
 	def get_queryset(self):
 		queryset = (
 			Order.objects.select_related("creator", "organisation", "campus")
 			.annotate(participants_count=Count("participants", distinct=True), items_count=Count("items", distinct=True))
-			.all()
 		)
-		if self.request.user.is_superuser:
-			return queryset
-		return queryset.filter(
-			Q(creator=self.request.user)
-			| Q(participants__user=self.request.user)
-			| Q(
-				organisation__memberships__user=self.request.user,
-				organisation__memberships__status=MembershipStatus.ACTIVE,
-			)
-		).distinct()
+		return queryset
 
 	def update(self, request, *args, **kwargs):
 		order = self.get_object()
