@@ -11,4 +11,4 @@ class User(AbstractUser):
     phone = models.BigIntegerField(null=False, blank=False)
     hostel = models.CharField(choices=HOSTEL_CHOICES,null=False, blank=False)
     gender=models.CharField(choices=(("Female","Female"),("Male","Male")),null=False)
-
+    organisation = models.CharField(max_length=100, null=True, blank=True)

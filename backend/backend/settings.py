@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 from urllib.parse import urlparse, parse_qsl
@@ -28,7 +29,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "rest_framework",
     "rest_framework_simplejwt",
-    "users"
+    "users",
+    "chats",
+    "orders",
+    "organisations",
+    "payments",
 ]
 
 MIDDLEWARE = [
@@ -74,7 +79,23 @@ DATABASES = {
         'OPTIONS': dict(parse_qsl(tmpPostgres.query)),
     }
 }
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
 
+REST_FRAMEWORK_SIMPLEJWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',       
+}
+
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID") or os.getenv("RAZORPAY_API_KEY", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET") or os.getenv("RAZORPAY_API_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
