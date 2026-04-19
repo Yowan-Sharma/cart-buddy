@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
+import '../../features/auth/presentation/profile_completion_screen.dart';
 import '../../features/onboarding/presentation/university_selection_screen.dart';
 import '../../features/onboarding/presentation/delivery_point_selection_screen.dart';
 import '../../features/home/presentation/home_shell.dart';
@@ -13,36 +14,46 @@ final goRouterProvider = Provider<GoRouter>((ref) {
 
   return GoRouter(
     initialLocation: '/splash',
-    refreshListenable: null, // Riverpod handles rebuilds
+    refreshListenable: null,
     redirect: (context, state) {
-      // Cold start only: refresh token / session bootstrap (see AuthState.isInitializingAuth)
+      // Cold start: waiting for session bootstrap
       if (authState.isInitializingAuth) {
         return state.matchedLocation == '/splash' ? null : '/splash';
       }
-      
-      // If auth is resolved and we are still on splash, redirect away from it
+
+      // Resolved from splash — redirect based on auth state
       if (state.matchedLocation == '/splash') {
         return authState.isAuthenticated ? '/orders' : '/login';
       }
 
       final isAuthenticated = authState.isAuthenticated;
-      final isLoggingIn = state.matchedLocation == '/login' || state.matchedLocation == '/register';
+      final loc = state.matchedLocation;
+      final isAuthRoute = loc == '/login' || loc == '/register';
 
       if (!isAuthenticated) {
-        return isLoggingIn ? null : '/login';
+        return isAuthRoute ? null : '/login';
       }
 
-      // If authenticated but no university set, force onboarding
-      // Note: check for null or 0 if that's how it's represented
-      if (authState.user?.organisation == null) {
-        if (state.matchedLocation != '/onboarding/university') {
-          return '/onboarding/university';
-        }
+      // Authenticated — check profile completeness
+      final user = authState.user;
+      final needsProfileCompletion =
+          user != null && (user.phone.isEmpty || user.phone == '0' || user.gender.isEmpty);
+
+      if (needsProfileCompletion && loc != '/profile-completion') {
+        return '/profile-completion';
+      }
+
+      if (!needsProfileCompletion && loc == '/profile-completion') {
+        return '/orders';
+      }
+
+      // If no university set, force onboarding
+      if (!needsProfileCompletion && user?.organisation == null) {
+        if (loc != '/onboarding/university') return '/onboarding/university';
         return null;
       }
 
-      // If logging in or on university screen but already has university, go to orders
-      if (isLoggingIn || state.matchedLocation == '/onboarding/university') {
+      if (isAuthRoute || loc == '/onboarding/university') {
         return '/orders';
       }
 
@@ -64,6 +75,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/profile-completion',
+        builder: (context, state) => const ProfileCompletionScreen(),
       ),
       GoRoute(
         path: '/onboarding/university',

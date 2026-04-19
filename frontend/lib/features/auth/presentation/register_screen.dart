@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/auth_services.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../data/google_oauth_service.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -16,7 +17,7 @@ class RegisterScreen extends ConsumerStatefulWidget {
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   String? _gender;
-  
+
   String _firstName = '';
   String _lastName = '';
   String _username = '';
@@ -24,6 +25,27 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   String _phone = '';
   String _password = '';
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
+
+  final _googleOAuth = GoogleOAuthService();
+
+  Future<void> _signInWithGoogle() async {
+    setState(() => _isGoogleLoading = true);
+    try {
+      final idToken = await _googleOAuth.getIdToken();
+      final result = await ref.read(authServiceProvider).googleLogin(idToken);
+      if (result.containsKey('access') && mounted) {
+        await ref.read(authStateProvider.notifier).login(
+          result['access'] as String,
+          refreshToken: result['refresh'] as String?,
+        );
+      }
+    } catch (e) {
+      if (mounted) _showErrorModal(context, _getErrorMessage(e));
+    } finally {
+      if (mounted) setState(() => _isGoogleLoading = false);
+    }
+  }
 
   void _showSuccessModal(BuildContext context, String message, VoidCallback onConfirm) {
     showDialog(
@@ -265,16 +287,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _SocialButton(
-                          icon: Icons.g_mobiledata, // Placeholder for Google Icon
-                          label: 'Google',
-                          onTap: () {},
-                        ),
-                        _SocialButton(
-                          icon: Icons.apple,
-                          label: 'Apple',
-                          onTap: () {},
-                        ),
+                    _GoogleButton(
+                      isLoading: _isGoogleLoading,
+                      onTap: _isGoogleLoading ? null : _signInWithGoogle,
+                    ),
                       ],
                     ),
                     const SizedBox(height: 32),
@@ -383,16 +399,11 @@ class _SelectionOption extends StatelessWidget {
   }
 }
 
-class _SocialButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
+class _GoogleButton extends StatelessWidget {
+  final bool isLoading;
+  final VoidCallback? onTap;
 
-  const _SocialButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
+  const _GoogleButton({required this.isLoading, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -400,22 +411,40 @@ class _SocialButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           border: Border.all(color: AppColors.textSub.withOpacity(0.2)),
           borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 24, color: AppColors.primary),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
+            if (isLoading)
+              const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else ...[
+              const Text(
+                'G',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF4285F4),
+                ),
               ),
-            ),
+              const SizedBox(width: 10),
+              const Text(
+                'Continue with Google',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 15,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
           ],
         ),
       ),

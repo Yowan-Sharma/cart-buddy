@@ -128,6 +128,7 @@ class Order(models.Model):
 	cutoff_at = models.DateTimeField()
 	expected_delivery_at = models.DateTimeField(null=True, blank=True)
 	delivered_at = models.DateTimeField(null=True, blank=True)
+	prepared_at = models.DateTimeField(null=True, blank=True)
 	completed_at = models.DateTimeField(null=True, blank=True)
 	cancelled_at = models.DateTimeField(null=True, blank=True)
 	cancel_reason = models.CharField(max_length=255, blank=True)

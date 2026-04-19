@@ -18,8 +18,10 @@ SECRET_KEY = "django-insecure-+g80m!*)lz)w44%3z!11r)c6%=md2&omlat6-zms1x56s2_e)4
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1', '*']
 
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
 
 # Application definition
 
@@ -37,10 +39,12 @@ INSTALLED_APPS = [
     "organisations",
     "payments",
     "disputes.apps.DisputesConfig",
+    'corsheaders'
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -100,6 +104,9 @@ REST_FRAMEWORK_SIMPLEJWT = {
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID") or os.getenv("RAZORPAY_API_KEY", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET") or os.getenv("RAZORPAY_API_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+HF_TOKEN = os.getenv("HF_TOKEN", "")
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 CHANNEL_LAYERS = {

@@ -61,4 +61,9 @@ class AuthService {
     final response = await _dio.patch('users/me/', data: data);
     return User.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
+
+  Future<Map<String, dynamic>> googleLogin(String idToken) async {
+    final response = await _dio.post('users/google/', data: {'id_token': idToken});
+    return Map<String, dynamic>.from(response.data as Map);
+  }
 }

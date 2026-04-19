@@ -50,6 +50,7 @@ class OrderSerializer(serializers.ModelSerializer):
 			"cutoff_at",
 			"expected_delivery_at",
 			"delivered_at",
+			"prepared_at",
 			"completed_at",
 			"cancelled_at",
 			"cancel_reason",

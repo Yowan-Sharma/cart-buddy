@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -51,6 +53,7 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
   bool _isSubmittingCart = false;
   bool _isAddingItem = false;
   bool _isPaying = false;
+  Timer? _paymentFlowTimeout;
   int? _activeReviewItemId;
   int? _pendingPaymentTransactionId;
   List<OrderItemModel> _managerQueue = [];
@@ -74,6 +77,7 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
   void dispose() {
     _chatSubscription?.cancel();
     _chatChannel?.sink.close();
+    _paymentFlowTimeout?.cancel();
     _razorpay.clear();
     _tabController.dispose();
     _chatController.dispose();
@@ -411,12 +415,33 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
     final user = _currentUser;
     if (order == null || user == null) return;
 
+    if (Platform.isIOS && await _isRunningOnIosSimulator()) {
+      if (!mounted) return;
+      _showToast(
+        'Use a physical iPhone',
+        'Razorpay checkout requires a real device with this Xcode version. Connect an iPhone via USB to test payments.',
+      );
+      return;
+    }
+
     setState(() => _isPaying = true);
     try {
       final payment = await ref
           .read(orderServiceProvider)
           .createPayment(widget.orderId);
       _pendingPaymentTransactionId = payment.transactionId;
+      _paymentFlowTimeout?.cancel();
+      _paymentFlowTimeout = Timer(const Duration(seconds: 25), () {
+        if (!mounted || !_isPaying) return;
+        setState(() {
+          _isPaying = false;
+          _pendingPaymentTransactionId = null;
+        });
+        _showToast(
+          'Checkout did not open',
+          'Razorpay did not respond in time. If you are on iOS simulator, use a physical iPhone.',
+        );
+      });
       _razorpay.open({
         'key': payment.keyId,
         'amount': payment.amount,
@@ -432,7 +457,17 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
     }
   }
 
+  Future<bool> _isRunningOnIosSimulator() async {
+    try {
+      final info = await DeviceInfoPlugin().iosInfo;
+      return !info.isPhysicalDevice;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _handlePaymentSuccess(PaymentSuccessResponse response) async {
+    _paymentFlowTimeout?.cancel();
     final transactionId = _pendingPaymentTransactionId;
     if (transactionId == null) return;
 
@@ -462,6 +497,7 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
 
   void _handlePaymentError(PaymentFailureResponse response) {
     if (!mounted) return;
+    _paymentFlowTimeout?.cancel();
     setState(() {
       _isPaying = false;
       _pendingPaymentTransactionId = null;
@@ -474,6 +510,7 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
 
   void _handleExternalWalletSelected(ExternalWalletResponse response) {
     if (!mounted) return;
+    _paymentFlowTimeout?.cancel();
     _showToast(
       'External wallet selected',
       response.walletName ?? 'Complete the payment in your wallet app.',
@@ -1088,6 +1125,10 @@ class _OrderHeader extends StatelessWidget {
           ],
           if (order.status == 'ARRIVED') ...[
             const SizedBox(height: 12),
+            if (order.preparedAt != null) ...[
+              _PickupTimer(preparedAt: order.preparedAt!),
+              const SizedBox(height: 12),
+            ],
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
@@ -1499,6 +1540,100 @@ class _StatusChip extends StatelessWidget {
           fontWeight: FontWeight.w700,
           fontSize: 11,
         ),
+      ),
+    );
+  }
+}
+
+class _PickupTimer extends StatefulWidget {
+  final DateTime preparedAt;
+
+  const _PickupTimer({required this.preparedAt});
+
+  @override
+  State<_PickupTimer> createState() => _PickupTimerState();
+}
+
+class _PickupTimerState extends State<_PickupTimer> {
+  late Timer _timer;
+  late Duration _remaining;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateRemaining();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _calculateRemaining());
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  void _calculateRemaining() {
+    final now = DateTime.now();
+    final deadline = widget.preparedAt.add(const Duration(minutes: 15));
+    setState(() {
+      _remaining = deadline.difference(now);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isLate = _remaining.isNegative;
+    final absRemaining = _remaining.abs();
+    final minutes = absRemaining.inMinutes;
+    final seconds = absRemaining.inSeconds % 60;
+    final timeStr = '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isLate
+            ? Colors.red.withValues(alpha: 0.1)
+            : Colors.orange.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isLate ? Colors.red.withValues(alpha: 0.3) : Colors.orange.withValues(alpha: 0.3),
+          width: 2,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isLate ? FIcons.circleAlert : FIcons.clock,
+            color: isLate ? Colors.red : Colors.orange,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isLate ? 'PICKUP OVERDUE' : 'PICKUP TIMEOUT',
+                  style: TextStyle(
+                    color: isLate ? Colors.red : Colors.orange,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 10,
+                    letterSpacing: 1.1,
+                  ),
+                ),
+                Text(
+                  isLate
+                      ? 'Penalty zone: $timeStr late'
+                      : 'Time left: $timeStr',
+                  style: TextStyle(
+                    color: isLate ? Colors.red : AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

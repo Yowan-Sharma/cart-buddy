@@ -13,6 +13,7 @@ class Order {
   final double baseAmount;
   final double minThresholdAmount;
   final DateTime cutoffAt;
+  final DateTime? preparedAt;
   final bool canManage;
 
   Order({
@@ -30,6 +31,7 @@ class Order {
     required this.baseAmount,
     required this.minThresholdAmount,
     required this.cutoffAt,
+    this.preparedAt,
     required this.canManage,
   });
 
@@ -70,6 +72,9 @@ class Order {
           double.tryParse(json['min_threshold_amount']?.toString() ?? '') ??
               0.0,
       cutoffAt: DateTime.parse(json['cutoff_at'].toString()),
+      preparedAt: json['prepared_at'] != null
+          ? DateTime.parse(json['prepared_at'].toString())
+          : null,
       canManage: json['can_manage'] == true,
     );
   }

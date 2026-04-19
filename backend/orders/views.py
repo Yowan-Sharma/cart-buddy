@@ -392,6 +392,34 @@ class OrderParticipantListCreateView(generics.ListCreateAPIView):
 				"user_id": participant.user_id,
 			},
 		)
+		# --- APPLY PENDING PENALTY ---
+		if participant.user.pending_penalty > 0:
+			penalty_amount = participant.user.pending_penalty
+			OrderItem.objects.create(
+				order=order,
+				participant=participant,
+				added_by=request.user,
+				name="Late Fee (Previous Order)",
+				quantity=1,
+				unit_price=penalty_amount,
+				line_total=penalty_amount,
+				status=OrderItemStatus.APPROVED,
+				reviewed_by=order.creator,
+				reviewed_at=timezone.now(),
+			)
+			# Reset penalty on user
+			target_user = participant.user
+			target_user.pending_penalty = Decimal("0.00")
+			target_user.save(update_fields=["pending_penalty"])
+			
+			# Recalculate order totals
+			order.recalculate_totals()
+			order.save(update_fields=["subtotal_amount", "total_amount", "updated_at"])
+			
+			# Refresh participant to update amount_due if needed
+			_recalculate_participant_due(participant)
+		# -----------------------------
+
 		return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -670,6 +698,8 @@ class OrderStatusUpdateView(APIView):
 
 		order.status = new_status
 		now = timezone.now()
+		if new_status == OrderStatus.ARRIVED:
+			order.prepared_at = now
 		if new_status == OrderStatus.DELIVERED:
 			order.delivered_at = now
 		if new_status == OrderStatus.COMPLETED:
@@ -819,6 +849,23 @@ class VerifyHandoverOtpView(APIView):
 		otp_obj.verified_at = now
 		otp_obj.verified_by = request.user
 		otp_obj.save(update_fields=["status", "verified_at", "verified_by", "updated_at"])
+
+		# --- LATE PICKUP PENALTY LOGIC ---
+		if order.prepared_at:
+			diff = now - order.prepared_at
+			if diff > timedelta(minutes=15):
+				penalty_amount = Decimal("20.00")
+				user = participant.user
+				user.pending_penalty += penalty_amount
+				user.save(update_fields=["pending_penalty"])
+				
+				minutes_late = int(diff.total_seconds() // 60)
+				_post_system_message(
+					order,
+					f"SYSTEM: {user.username} was {minutes_late} minutes late for pickup. A penalty of ₹{penalty_amount} will be added to their next order.",
+					{"event": "late_penalty", "user_id": user.id, "minutes_late": minutes_late}
+				)
+		# ---------------------------------
 
 		participant.status = ParticipantStatus.HANDED_OVER
 		participant.save(update_fields=["status"])
