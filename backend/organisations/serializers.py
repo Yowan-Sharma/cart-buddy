@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from .models import Campus, Organisation, OrganisationMembership
+from .models import Campus, Organisation, OrganisationMembership, PickupPoint
 
 
 User = get_user_model()
@@ -44,6 +44,37 @@ class CampusSerializer(serializers.ModelSerializer):
 			"updated_at",
 		]
 		read_only_fields = ["id", "slug", "created_at", "updated_at", "organisation_name"]
+
+
+class PickupPointSerializer(serializers.ModelSerializer):
+	organisation_name = serializers.CharField(source="organisation.name", read_only=True)
+	campus_name = serializers.CharField(source="campus.name", read_only=True)
+
+	class Meta:
+		model = PickupPoint
+		fields = [
+			"id",
+			"organisation",
+			"organisation_name",
+			"campus",
+			"campus_name",
+			"name",
+			"slug",
+			"description",
+			"is_active",
+			"sort_order",
+			"metadata",
+			"created_at",
+			"updated_at",
+		]
+		read_only_fields = [
+			"id",
+			"slug",
+			"created_at",
+			"updated_at",
+			"organisation_name",
+			"campus_name",
+		]
 
 
 class MembershipUserSerializer(serializers.ModelSerializer):

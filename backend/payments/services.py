@@ -58,6 +58,16 @@ def capture_payment(*, razorpay_payment_id: str, amount: Decimal, currency: str 
     )
 
 
+def create_refund(*, razorpay_payment_id: str, amount: Decimal | None = None, notes: dict | None = None) -> dict:
+    client = get_razorpay_client()
+    payload: dict = {}
+    if amount is not None:
+        payload["amount"] = decimal_to_paise(amount)
+    if notes:
+        payload["notes"] = notes
+    return client.payment.refund(razorpay_payment_id, payload)
+
+
 def verify_webhook_signature(payload_bytes: bytes, signature: str) -> None:
     secret = settings.RAZORPAY_WEBHOOK_SECRET
     if not secret:

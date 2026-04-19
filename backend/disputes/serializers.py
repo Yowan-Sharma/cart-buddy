@@ -60,7 +60,7 @@ class DisputeResolutionSerializer(serializers.ModelSerializer):
 
 
 class CreateDisputeSerializer(serializers.Serializer):
-    order_id = serializers.IntegerField(required=True)
+    order_id = serializers.IntegerField(required=False, allow_null=True)
     category = serializers.ChoiceField(choices=DisputeCategory.choices)
     priority = serializers.ChoiceField(
         choices=DisputePriority.choices,
@@ -69,10 +69,12 @@ class CreateDisputeSerializer(serializers.Serializer):
     )
     title = serializers.CharField(max_length=255, min_length=5)
     description = serializers.CharField(max_length=5000, min_length=20)
-    amount_claimed = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+    amount_claimed = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, default=0.0)
     evidence = serializers.JSONField(required=False, default=dict)
     
     def validate_order_id(self, value):
+        if value is None:
+            return None
         try:
             Order.objects.get(pk=value)
         except Order.DoesNotExist:

@@ -82,6 +82,54 @@ class Campus(models.Model):
 		super().save(*args, **kwargs)
 
 
+class PickupPoint(models.Model):
+	organisation = models.ForeignKey(
+		Organisation,
+		on_delete=models.CASCADE,
+		related_name="pickup_points",
+	)
+	campus = models.ForeignKey(
+		Campus,
+		on_delete=models.CASCADE,
+		related_name="pickup_points",
+		null=True,
+		blank=True,
+	)
+	name = models.CharField(max_length=120)
+	slug = models.SlugField(max_length=140, blank=True)
+	description = models.CharField(max_length=255, blank=True)
+	is_active = models.BooleanField(default=True)
+	sort_order = models.PositiveSmallIntegerField(default=0)
+	metadata = models.JSONField(default=dict, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ["sort_order", "name"]
+		constraints = [
+			models.UniqueConstraint(
+				fields=["organisation", "slug"],
+				name="organisations_pickuppoint_unique_org_slug",
+			),
+		]
+		indexes = [
+			models.Index(fields=["organisation", "is_active"]),
+			models.Index(fields=["campus", "is_active"]),
+		]
+
+	def __str__(self) -> str:
+		return f"{self.organisation.short_code} - {self.name}"
+
+	def clean(self):
+		if self.campus_id and self.campus.organisation_id != self.organisation_id:
+			raise ValidationError("campus must belong to the same organisation.")
+
+	def save(self, *args, **kwargs):
+		if not self.slug:
+			self.slug = slugify(self.name)
+		super().save(*args, **kwargs)
+
+
 class OrganisationMembership(models.Model):
 	organisation = models.ForeignKey(
 		Organisation,

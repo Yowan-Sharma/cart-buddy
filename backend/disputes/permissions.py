@@ -13,18 +13,20 @@ def can_view_dispute(dispute, user):
     if dispute.raised_by == user:
         return True
     
-    # Order participants can view disputes on their order
-    if OrderParticipant.objects.filter(order=dispute.order, user=user).exists():
-        return True
-    
-    # Organization members (ADMIN/OWNER) can view
-    org = dispute.order.organisation
-    if OrganisationMembership.objects.filter(
-        organisation=org,
-        user=user,
-        role__in=[MembershipRole.ADMIN, MembershipRole.OWNER]
-    ).exists():
-        return True
+    # If it's linked to an order, participants can view
+    if dispute.order:
+        # Order participants can view disputes on their order
+        if OrderParticipant.objects.filter(order=dispute.order, user=user).exists():
+            return True
+        
+        # Organization members (ADMIN/OWNER) can view
+        org = dispute.order.organisation
+        if OrganisationMembership.objects.filter(
+            organisation=org,
+            user=user,
+            role__in=[MembershipRole.ADMIN, MembershipRole.OWNER]
+        ).exists():
+            return True
     
     return False
 

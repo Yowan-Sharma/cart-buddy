@@ -47,7 +47,7 @@ class MessageType(models.TextChoices):
 
 class Dispute(models.Model):
     # Core identifiers
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="disputes")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="disputes", null=True, blank=True)
     ticket_id = models.CharField(max_length=50, unique=True, editable=False)
     raised_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="raised_disputes")
     assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_disputes")
@@ -93,9 +93,10 @@ class Dispute(models.Model):
     
     def save(self, *args, **kwargs):
         if not self.ticket_id:
-            # Generate ticket ID: DISP-ORDER{order_id}-{timestamp}
+            # Generate ticket ID: DISP-ORD{order_id}-{timestamp} or DISP-GEN-{timestamp}
             import time
-            self.ticket_id = f"DISP-ORD{self.order_id}-{int(time.time())}"
+            prefix = f"ORD{self.order_id}" if self.order_id else "GEN"
+            self.ticket_id = f"DISP-{prefix}-{int(time.time())}"
         super().save(*args, **kwargs)
 
 

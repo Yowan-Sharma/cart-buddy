@@ -5,11 +5,19 @@ import 'package:forui/forui.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/theme/app_colors.dart';
 
+import '../../payments/providers/wallet_provider.dart';
+import '../../payments/presentation/withdrawal_screen.dart';
+import '../../support/presentation/help_screen.dart';
+import '../../support/presentation/info_screens.dart';
+import 'profile_edit_screen.dart';
+
 class SettingsTab extends ConsumerWidget {
   const SettingsTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final walletAsync = ref.watch(walletBalanceProvider);
+
     return Container(
       color: AppColors.background,
       child: ListView(
@@ -18,30 +26,58 @@ class SettingsTab extends ConsumerWidget {
           FTileGroup(
             children: [
               FTile(
+                prefix: Icon(FIcons.wallet, color: AppColors.primary),
+                title: const Text('My Wallet'),
+                details: walletAsync.when(
+                  data: (w) => Text(
+                    '₹${w.balance.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                    ),
+                  ),
+                  loading: () => const Text('Loading...'),
+                  error: (_, __) => const Text('Error loading balance'),
+                ),
+                onPress: () => ref.refresh(walletBalanceProvider),
+              ),
+              FTile(
+                prefix: Icon(FIcons.landmark, color: AppColors.primary),
+                title: const Text('Withdraw Funds'),
+                details: const Text('Transfer to bank account'),
+                onPress: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WithdrawalScreen()),
+                ),
+              ),
+              FTile(
                 prefix: Icon(FIcons.user, color: AppColors.primary),
                 title: const Text('Profile'),
                 details: const Text('Account and preferences'),
-                onPress: () {},
+                onPress: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfileEditScreen()),
+                ),
               ),
               FTile(
                 prefix: Icon(FIcons.fileText, color: AppColors.primary),
                 title: const Text('Terms of service'),
-                onPress: () {},
+                onPress: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TermsScreen())),
               ),
               FTile(
                 prefix: Icon(FIcons.shield, color: AppColors.primary),
                 title: const Text('Privacy policy'),
-                onPress: () {},
+                onPress: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyScreen())),
               ),
               FTile(
-                prefix: Icon(FIcons.circleAlert, color: AppColors.primary),
+                prefix: Icon(FIcons.messageCircle, color: AppColors.primary),
                 title: const Text('Help'),
-                onPress: () {},
+                onPress: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpScreen())),
               ),
               FTile(
                 prefix: Icon(FIcons.bookOpen, color: AppColors.primary),
                 title: const Text('FAQs'),
-                onPress: () {},
+                onPress: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FAQScreen())),
               ),
             ],
           ),
@@ -62,7 +98,7 @@ class SettingsTab extends ConsumerWidget {
                       body: const Text('Are you sure you want to logout?'),
                       actions: [
                         FButton(
-                          style: FButtonStyle.outline,
+                          variant: FButtonVariant.outline,
                           onPress: () => Navigator.pop(context),
                           child: const Text('Cancel'),
                         ),

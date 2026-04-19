@@ -59,3 +59,35 @@ class Campus {
     );
   }
 }
+
+class PickupPoint {
+  final int id;
+  final int organisationId;
+  final int? campusId;
+  final String name;
+  final String description;
+  final bool isActive;
+  final int sortOrder;
+
+  PickupPoint({
+    required this.id,
+    required this.organisationId,
+    required this.name,
+    this.campusId,
+    this.description = '',
+    this.isActive = true,
+    this.sortOrder = 0,
+  });
+
+  factory PickupPoint.fromJson(Map<String, dynamic> json) {
+    return PickupPoint(
+      id: json['id'],
+      organisationId: json['organisation'],
+      campusId: json['campus'],
+      name: json['name'] ?? '',
+      description: json['description'] ?? '',
+      isActive: json['is_active'] ?? true,
+      sortOrder: json['sort_order'] ?? 0,
+    );
+  }
+}

@@ -106,4 +106,9 @@ class AuthNotifier extends Notifier<AuthState> {
       } catch (_) {}
     }
   }
+
+  Future<void> updateProfile(Map<String, dynamic> data) async {
+    final user = await ref.read(authServiceProvider).updateProfile(data);
+    state = state.copyWith(user: user);
+  }
 }

@@ -20,9 +20,23 @@ class OrganisationService {
   Future<List<Campus>> getCampuses() async {
     try {
       final response = await _dio.get('organisations/campuses/');
+      return (response.data as List).map((e) => Campus.fromJson(e)).toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<PickupPoint>> getPickupPoints(int organisationId) async {
+    try {
+      final response = await _dio.get(
+        'organisations/pickup-points/',
+        queryParameters: {'organisation': organisationId},
+      );
       return (response.data as List)
-          .map((e) => Campus.fromJson(e))
-          .toList();
+          .map((e) => PickupPoint.fromJson(Map<String, dynamic>.from(e as Map)))
+          .where((point) => point.isActive)
+          .toList()
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     } catch (e) {
       rethrow;
     }
@@ -30,9 +44,7 @@ class OrganisationService {
 
   Future<void> joinOrganisation(int organisationId) async {
     try {
-      await _dio.patch('users/me/', data: {
-        'organisation': organisationId,
-      });
+      await _dio.patch('users/me/', data: {'organisation': organisationId});
     } catch (e) {
       rethrow;
     }

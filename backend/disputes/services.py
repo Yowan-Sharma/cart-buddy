@@ -27,7 +27,7 @@ class DisputeService:
             priority=priority,
             title=title,
             description=description,
-            amount_claimed=amount_claimed,
+            amount_claimed=amount_claimed or Decimal("0.00"),
             evidence=evidence or {},
         )
         
@@ -39,7 +39,8 @@ class DisputeService:
             message_type=MessageType.SYSTEM,
         )
         
-        logger.info(f"Dispute {dispute.ticket_id} created for order {order.id}")
+        order_info = f"for order {order.id}" if order else "without specific order"
+        logger.info(f"Dispute {dispute.ticket_id} created {order_info}")
         return dispute
     
     @staticmethod

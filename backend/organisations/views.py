@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
@@ -7,8 +8,14 @@ from .models import (
 	MembershipStatus,
 	Organisation,
 	OrganisationMembership,
+	PickupPoint,
 )
-from .serializers import CampusSerializer, OrganisationMembershipSerializer, OrganisationSerializer
+from .serializers import (
+	CampusSerializer,
+	OrganisationMembershipSerializer,
+	OrganisationSerializer,
+	PickupPointSerializer,
+)
 
 
 class IsOrganisationAdmin(IsAuthenticated):
@@ -110,8 +117,8 @@ class CampusListCreateView(generics.ListCreateAPIView):
 		queryset = Campus.objects.select_related("organisation").all()
 		if not self.request.user.is_superuser:
 			queryset = queryset.filter(
-				organisation__memberships__user=self.request.user,
-				organisation__memberships__status=MembershipStatus.ACTIVE,
+				Q(organisation__memberships__user=self.request.user, organisation__memberships__status=MembershipStatus.ACTIVE) |
+				Q(organisation_id=self.request.user.organisation_id)
 			).distinct()
 		org_id = self.request.query_params.get("organisation")
 		if org_id:
@@ -134,6 +141,41 @@ class CampusDetailView(generics.RetrieveUpdateDestroyAPIView):
 		).distinct()
 
 
+class PickupPointListCreateView(generics.ListCreateAPIView):
+	serializer_class = PickupPointSerializer
+	permission_classes = [IsOrganisationAdmin]
+
+	def get_queryset(self):
+		queryset = PickupPoint.objects.select_related("organisation", "campus").all()
+		if not self.request.user.is_superuser:
+			queryset = queryset.filter(
+				Q(organisation__memberships__user=self.request.user, organisation__memberships__status=MembershipStatus.ACTIVE) |
+				Q(organisation_id=self.request.user.organisation_id)
+			).distinct()
+		org_id = self.request.query_params.get("organisation")
+		campus_id = self.request.query_params.get("campus")
+		if org_id:
+			queryset = queryset.filter(organisation_id=org_id)
+		if campus_id:
+			queryset = queryset.filter(campus_id=campus_id)
+		return queryset
+
+
+class PickupPointDetailView(generics.RetrieveUpdateDestroyAPIView):
+	queryset = PickupPoint.objects.select_related("organisation", "campus").all()
+	serializer_class = PickupPointSerializer
+	permission_classes = [IsOrganisationAdmin]
+
+	def get_queryset(self):
+		queryset = self.queryset
+		if self.request.user.is_superuser:
+			return queryset
+		return queryset.filter(
+			organisation__memberships__user=self.request.user,
+			organisation__memberships__status=MembershipStatus.ACTIVE,
+		).distinct()
+
+
 class MembershipListCreateView(generics.ListCreateAPIView):
 	serializer_class = OrganisationMembershipSerializer
 	permission_classes = [IsOrganisationAdmin]
@@ -142,8 +184,8 @@ class MembershipListCreateView(generics.ListCreateAPIView):
 		queryset = OrganisationMembership.objects.select_related("organisation", "user").all()
 		if not self.request.user.is_superuser:
 			queryset = queryset.filter(
-				organisation__memberships__user=self.request.user,
-				organisation__memberships__status=MembershipStatus.ACTIVE,
+				Q(organisation__memberships__user=self.request.user, organisation__memberships__status=MembershipStatus.ACTIVE) |
+				Q(organisation_id=self.request.user.organisation_id)
 			).distinct()
 		org_id = self.request.query_params.get("organisation")
 		user_id = self.request.query_params.get("user")

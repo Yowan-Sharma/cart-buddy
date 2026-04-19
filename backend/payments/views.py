@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
@@ -12,7 +13,15 @@ from rest_framework.views import APIView
 from orders.models import Order, OrderParticipant, ParticipantStatus
 from organisations.models import MembershipStatus, OrganisationMembership
 
-from .models import PaymentStatus, PaymentTransaction
+from .models import (
+    PaymentStatus,
+    PaymentTransaction,
+    Wallet,
+    WalletTransaction,
+    WalletTransactionType,
+    WithdrawalRequest,
+    WithdrawalStatus,
+)
 from .serializers import (
 	CreateRazorpayOrderSerializer,
 	PaymentTransactionSerializer,
@@ -335,3 +344,68 @@ class RazorpayWebhookView(APIView):
 			payment_txn.save(update_fields=["razorpay_payment_id", "gateway_payload", "status", "updated_at"])
 
 		return Response({"message": "Webhook processed."}, status=status.HTTP_200_OK)
+
+
+class MyWalletView(APIView):
+	permission_classes = [IsAuthenticated]
+
+	def get(self, request):
+		from .models import Wallet
+		wallet, _ = Wallet.objects.get_or_create(user=request.user)
+		return Response({
+			"balance": wallet.balance,
+			"created_at": wallet.created_at,
+			"updated_at": wallet.updated_at
+		}, status=status.HTTP_200_OK)
+
+class RequestWithdrawalView(APIView):
+	permission_classes = [IsAuthenticated]
+
+	@transaction.atomic
+	def post(self, request):
+		amount_str = request.data.get("amount")
+		if not amount_str:
+			return Response({"error": "Amount is required."}, status=status.HTTP_400_BAD_REQUEST)
+		
+		try:
+			amount = Decimal(str(amount_str))
+		except:
+			return Response({"error": "Invalid amount format."}, status=status.HTTP_400_BAD_REQUEST)
+
+		if amount <= 0:
+			return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+		user = request.user
+		if not user.bank_account_number or not user.ifsc_code:
+			return Response({"error": "Please set your bank details in profile before withdrawing."}, status=status.HTTP_400_BAD_REQUEST)
+
+		wallet, _ = Wallet.objects.get_or_create(user=user)
+		if wallet.balance < amount:
+			return Response({"error": "Insufficient wallet balance."}, status=status.HTTP_400_BAD_REQUEST)
+
+		# Create withdrawal request
+		withdrawal = WithdrawalRequest.objects.create(
+			user=user,
+			amount=amount,
+			bank_account_number=user.bank_account_number,
+			ifsc_code=user.ifsc_code,
+			status=WithdrawalStatus.PENDING
+		)
+
+		# Deduct from wallet immediately to prevent double spending
+		wallet.balance -= amount
+		wallet.save()
+
+		# Log transaction
+		WalletTransaction.objects.create(
+			wallet=wallet,
+			amount=amount,
+			transaction_type=WalletTransactionType.WITHDRAWAL,
+			description=f"Withdrawal request of ₹{amount} (ID: {withdrawal.id})"
+		)
+
+		return Response({
+			"message": "Withdrawal request submitted successfully.",
+			"withdrawal_id": withdrawal.id,
+			"new_balance": wallet.balance
+		}, status=status.HTTP_201_CREATED)

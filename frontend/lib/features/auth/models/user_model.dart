@@ -9,6 +9,9 @@ class User {
   final int? organisation;
   final String? organisationName;
 
+  final String? bankAccountNumber;
+  final String? ifscCode;
+
   User({
     required this.id,
     required this.username,
@@ -19,6 +22,8 @@ class User {
     required this.gender,
     this.organisation,
     this.organisationName,
+    this.bankAccountNumber,
+    this.ifscCode,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -32,6 +37,8 @@ class User {
       gender: json['gender'] ?? '',
       organisation: json['organisation'],
       organisationName: json['organisation_name'],
+      bankAccountNumber: json['bank_account_number'],
+      ifscCode: json['ifsc_code'],
     );
   }
 
@@ -46,6 +53,8 @@ class User {
       'gender': gender,
       'organisation': organisation,
       'organisation_name': organisationName,
+      'bank_account_number': bankAccountNumber,
+      'ifsc_code': ifscCode,
     };
   }
 }

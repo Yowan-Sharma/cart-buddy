@@ -13,6 +13,9 @@ class OrderStatus(models.TextChoices):
 	DELIVERED = "DELIVERED", "Delivered"
 	COMPLETED = "COMPLETED", "Completed"
 	CANCELLED = "CANCELLED", "Cancelled"
+	WITHDRAWN = "WITHDRAWN", "Withdrawn"
+	PLACED = "PLACED", "Placed"
+	ARRIVED = "ARRIVED", "Arrived"
 
 
 class ParticipantRole(models.TextChoices):
@@ -36,6 +39,13 @@ class HandoverOtpStatus(models.TextChoices):
 	REVOKED = "REVOKED", "Revoked"
 
 
+class OrderItemStatus(models.TextChoices):
+	DRAFT = "DRAFT", "Draft"
+	SUBMITTED = "SUBMITTED", "Submitted"
+	APPROVED = "APPROVED", "Approved"
+	REJECTED = "REJECTED", "Rejected"
+
+
 class Order(models.Model):
 	organisation = models.ForeignKey(
 		"organisations.Organisation",
@@ -46,6 +56,13 @@ class Order(models.Model):
 	)
 	campus = models.ForeignKey(
 		"organisations.Campus",
+		on_delete=models.PROTECT,
+		related_name="orders",
+		null=True,
+		blank=True,
+	)
+	pickup_point = models.ForeignKey(
+		"organisations.PickupPoint",
 		on_delete=models.PROTECT,
 		related_name="orders",
 		null=True,
@@ -68,7 +85,17 @@ class Order(models.Model):
 		choices=OrderStatus.choices,
 		default=OrderStatus.OPEN,
 	)
-	max_participants = models.PositiveSmallIntegerField(default=6)
+	max_participants = models.PositiveSmallIntegerField(default=10)
+	min_threshold_amount = models.DecimalField(
+		max_digits=10,
+		decimal_places=2,
+		default=Decimal("0.00"),
+	)
+	base_amount = models.DecimalField(
+		max_digits=10,
+		decimal_places=2,
+		default=Decimal("0.00"),
+	)
 
 	currency = models.CharField(max_length=3, default="INR")
 	subtotal_amount = models.DecimalField(
@@ -142,6 +169,14 @@ class Order(models.Model):
 				condition=models.Q(total_amount__gte=0),
 				name="orders_order_total_non_negative",
 			),
+			models.CheckConstraint(
+				condition=models.Q(min_threshold_amount__gte=0),
+				name="orders_order_min_threshold_non_negative",
+			),
+			models.CheckConstraint(
+				condition=models.Q(base_amount__gte=0),
+				name="orders_order_base_amount_non_negative",
+			),
 		]
 
 	def __str__(self) -> str:
@@ -150,6 +185,11 @@ class Order(models.Model):
 	def clean(self):
 		if self.campus_id and self.organisation_id and self.campus.organisation_id != self.organisation_id:
 			raise ValidationError("campus must belong to the same organisation.")
+		if self.pickup_point_id:
+			if self.organisation_id and self.pickup_point.organisation_id != self.organisation_id:
+				raise ValidationError("pickup_point must belong to the same organisation.")
+			if self.campus_id and self.pickup_point.campus_id and self.pickup_point.campus_id != self.campus_id:
+				raise ValidationError("pickup_point must belong to the same campus.")
 		if self.completed_at and self.status != OrderStatus.COMPLETED:
 			raise ValidationError("completed_at can only be set when order is COMPLETED.")
 		if self.cancelled_at and self.status != OrderStatus.CANCELLED:
@@ -225,6 +265,11 @@ class OrderParticipant(models.Model):
 
 class OrderItem(models.Model):
 	order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
+	participant = models.ForeignKey(
+		OrderParticipant,
+		on_delete=models.CASCADE,
+		related_name="items",
+	)
 	added_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
 		on_delete=models.SET_NULL,
@@ -238,6 +283,20 @@ class OrderItem(models.Model):
 	line_total = models.DecimalField(max_digits=10, decimal_places=2)
 	special_instructions = models.CharField(max_length=255, blank=True)
 	external_item_reference = models.CharField(max_length=100, blank=True)
+	status = models.CharField(
+		max_length=20,
+		choices=OrderItemStatus.choices,
+		default=OrderItemStatus.DRAFT,
+	)
+	review_reason = models.CharField(max_length=255, blank=True)
+	reviewed_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		null=True,
+		blank=True,
+		related_name="reviewed_order_items",
+	)
+	reviewed_at = models.DateTimeField(null=True, blank=True)
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
@@ -257,6 +316,14 @@ class OrderItem(models.Model):
 				condition=models.Q(line_total__gte=0),
 				name="orders_item_line_total_non_negative",
 			),
+			models.CheckConstraint(
+				condition=models.Q(review_reason__isnull=False) | models.Q(review_reason=""),
+				name="orders_item_review_reason_valid",
+			),
+		]
+		indexes = [
+			models.Index(fields=["order", "status"]),
+			models.Index(fields=["participant", "status"]),
 		]
 
 	def __str__(self) -> str:
@@ -266,6 +333,8 @@ class OrderItem(models.Model):
 		expected_total = (self.unit_price or Decimal("0.00")) * self.quantity
 		if self.line_total != expected_total:
 			raise ValidationError({"line_total": "line_total must equal unit_price * quantity."})
+		if self.participant_id and self.order_id and self.participant.order_id != self.order_id:
+			raise ValidationError({"participant": "participant must belong to the same order."})
 
 
 class OrderStatusHistory(models.Model):

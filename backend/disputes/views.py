@@ -27,14 +27,17 @@ class CreateDisputeView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        order = Order.objects.get(pk=serializer.validated_data["order_id"])
+        order_id = serializer.validated_data.get("order_id")
+        order = None
         
-        # Verify user is related to this order
-        if not (order.creator == request.user or OrderParticipant.objects.filter(order=order, user=request.user).exists()):
-            return Response(
-                {"error": "You must be creator or participant of this order to raise dispute"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        if order_id:
+            order = Order.objects.get(pk=order_id)
+            # Verify user is related to this order
+            if not (order.creator == request.user or OrderParticipant.objects.filter(order=order, user=request.user).exists()):
+                return Response(
+                    {"error": "You must be creator or participant of this order to raise dispute"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         dispute = DisputeService.create_dispute(
             order=order,

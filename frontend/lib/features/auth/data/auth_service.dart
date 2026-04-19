@@ -56,4 +56,9 @@ class AuthService {
     final response = await _dio.get('users/me/');
     return User.fromJson(Map<String, dynamic>.from(response.data as Map));
   }
+
+  Future<User> updateProfile(Map<String, dynamic> data) async {
+    final response = await _dio.patch('users/me/', data: data);
+    return User.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
 }
