@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
+from django.db import models
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -32,6 +33,7 @@ from .serializers import (
 from .services import (
 	RazorpayConfigError,
 	capture_payment,
+	calculate_cart_commission_share,
 	create_order,
 	fetch_payment,
 	safe_json_loads,
@@ -72,7 +74,10 @@ def _apply_successful_payment(payment_txn, payment_payload):
 		return
 
 	participant = payment_txn.participant
-	participant.amount_paid = participant.amount_paid + payment_txn.amount
+	active_participants = participant.order.participants.exclude(status__in=[ParticipantStatus.LEFT, ParticipantStatus.REFUNDED])
+	cart_total = active_participants.aggregate(total=models.Sum("amount_due")).get("total") or Decimal("0.00")
+	commission_share = calculate_cart_commission_share(cart_total, active_participants.count())
+	participant.amount_paid = participant.amount_paid + max(Decimal("0.00"), payment_txn.amount - commission_share)
 	if participant.amount_paid >= participant.amount_due:
 		participant.status = ParticipantStatus.PAID
 	participant.save(update_fields=["amount_paid", "status"])
@@ -102,16 +107,29 @@ class CreateRazorpayOrderView(APIView):
 		except PermissionError as exc:
 			return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
 
+		cart_total = (
+			order.participants.exclude(status__in=[ParticipantStatus.LEFT, ParticipantStatus.REFUNDED])
+			.aggregate(total=models.Sum("amount_due"))
+			.get("total")
+			or Decimal("0.00")
+		)
+		active_participant_count = (
+			order.participants.exclude(status__in=[ParticipantStatus.LEFT, ParticipantStatus.REFUNDED]).count()
+		)
+		commission_share = calculate_cart_commission_share(cart_total, active_participant_count)
+
 		payable_amount = participant.amount_due - participant.amount_paid
 		if payable_amount <= 0:
 			return Response({"error": "No pending amount for this participant."}, status=status.HTTP_400_BAD_REQUEST)
+
+		gateway_amount = payable_amount + commission_share
 
 		receipt = f"cb_ord{order.id}_part{participant.id}_{uuid.uuid4().hex[:10]}"
 		idem_key = uuid.uuid4().hex
 
 		try:
 			gateway_order = create_order(
-				amount=payable_amount,
+				amount=gateway_amount,
 				currency=order.currency,
 				receipt=receipt,
 				notes={
@@ -129,7 +147,7 @@ class CreateRazorpayOrderView(APIView):
 			order=order,
 			participant=participant,
 			user=request.user,
-			amount=payable_amount,
+			amount=gateway_amount,
 			currency=order.currency,
 			receipt_id=receipt,
 			idempotency_key=idem_key,

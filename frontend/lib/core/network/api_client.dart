@@ -6,7 +6,7 @@ import 'dio_interceptor.dart';
 final dioProvider = Provider<Dio>((ref) {
   final dio = Dio(
     BaseOptions(
-      baseUrl: 'http://127.0.0.1:8000/', // Replaced 127.0.0.1 with Mac IP for physical device testing
+      baseUrl: 'http://192.168.1.15:8000/', // Replaced 127.0.0.1 with Mac IP for physical device testing
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
       contentType: 'application/json',

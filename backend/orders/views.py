@@ -25,6 +25,7 @@ from payments.models import (
 	WalletTransaction,
 	WalletTransactionType,
 )
+from payments.services import calculate_cart_commission_share
 
 from .models import (
 	HandoverOtp,
@@ -124,7 +125,10 @@ def _recalculate_participant_due(participant):
 		or Decimal("0.00")
 	)
 	participant.amount_due = approved_total
-	if participant.amount_paid <= Decimal("0.00"):
+	if participant.role == ParticipantRole.CREATOR:
+		participant.amount_paid = approved_total
+		participant.status = ParticipantStatus.PAID
+	elif participant.amount_paid <= Decimal("0.00"):
 		participant.status = ParticipantStatus.JOINED
 	elif participant.amount_paid >= participant.amount_due and participant.amount_due > Decimal("0.00"):
 		participant.status = ParticipantStatus.PAID
@@ -132,7 +136,7 @@ def _recalculate_participant_due(participant):
 		participant.status = ParticipantStatus.REFUNDED if participant.amount_paid <= Decimal("0.00") else ParticipantStatus.JOINED
 	else:
 		participant.status = ParticipantStatus.JOINED
-	participant.save(update_fields=["amount_due", "status"])
+	participant.save(update_fields=["amount_due", "amount_paid", "status"])
 	return approved_total
 
 
@@ -251,8 +255,8 @@ class OrderListCreateView(generics.ListCreateAPIView):
 		search_param = self.request.query_params.get("search")
 		if search_param:
 			queryset = queryset.filter(
-				models.Q(title__icontains=search_param) | 
-				models.Q(store_name__icontains=search_param)
+				Q(title__icontains=search_param) |
+				Q(store_name__icontains=search_param)
 			)
 
 		return queryset.order_by("-created_at").distinct()
@@ -878,14 +882,18 @@ class VerifyHandoverOtpView(APIView):
 		).first()
 
 		if payment:
-			host = order.created_by
+			active_participants = order.participants.exclude(status__in=[ParticipantStatus.LEFT, ParticipantStatus.REFUNDED])
+			cart_total = active_participants.aggregate(total=Sum("amount_due")).get("total") or Decimal("0.00")
+			commission_share = calculate_cart_commission_share(cart_total, active_participants.count())
+			net_payout = max(Decimal("0.00"), payment.amount - commission_share)
+			host = order.creator
 			host_wallet, _ = Wallet.objects.get_or_create(user=host)
-			host_wallet.balance += payment.amount
+			host_wallet.balance += net_payout
 			host_wallet.save()
 
 			WalletTransaction.objects.create(
 				wallet=host_wallet,
-				amount=payment.amount,
+				amount=net_payout,
 				transaction_type=WalletTransactionType.INFLOW,
 				description=f"Handoff from {participant.user.username} for Order #{order.id}",
 				order=order,
@@ -897,6 +905,20 @@ class VerifyHandoverOtpView(APIView):
 		all_done = not other_participants.exclude(status=ParticipantStatus.HANDED_OVER).exists()
 
 		if all_done:
+			active_participants = order.participants.exclude(status__in=[ParticipantStatus.LEFT, ParticipantStatus.REFUNDED])
+			cart_total = active_participants.aggregate(total=Sum("amount_due")).get("total") or Decimal("0.00")
+			commission_share = calculate_cart_commission_share(cart_total, active_participants.count())
+			if commission_share > Decimal("0.00"):
+				host_wallet, _ = Wallet.objects.get_or_create(user=order.creator)
+				host_wallet.balance = max(Decimal("0.00"), host_wallet.balance - commission_share)
+				host_wallet.save(update_fields=["balance", "updated_at"])
+				WalletTransaction.objects.create(
+					wallet=host_wallet,
+					amount=commission_share,
+					transaction_type=WalletTransactionType.OUTFLOW,
+					description=f"Commission for Order #{order.id}",
+					order=order,
+				)
 			order.status = OrderStatus.COMPLETED
 			order.save(update_fields=["status", "updated_at"])
 

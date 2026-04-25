@@ -1,3 +1,4 @@
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -7,6 +8,7 @@ from rest_framework.test import APITestCase
 from orders.models import Order, OrderParticipant, ParticipantRole, ParticipantStatus
 from organisations.models import MembershipRole, MembershipStatus, Organisation, OrganisationMembership, Campus
 from payments.models import PaymentStatus, PaymentTransaction
+from payments.services import calculate_cart_commission_share
 from users.models import User
 
 
@@ -97,7 +99,7 @@ class PaymentsApiFlowTests(APITestCase):
 	def test_create_razorpay_order_success(self, mock_create_order):
 		mock_create_order.return_value = {
 			"id": "order_test_123",
-			"amount": 15000,
+			"amount": 15300,
 			"currency": "INR",
 			"receipt": "receipt_test_123",
 			"status": "created",
@@ -116,13 +118,17 @@ class PaymentsApiFlowTests(APITestCase):
 		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 		self.assertEqual(response.data["razorpay"]["order_id"], "order_test_123")
 		self.assertEqual(response.data["razorpay"]["key_id"], "rzp_test_key")
+		self.assertEqual(mock_create_order.call_args.kwargs["amount"], Decimal("153.00"))
 
 		payment_txn = PaymentTransaction.objects.get(
 			participant=self.joiner_participant,
 			razorpay_order_id="order_test_123",
 		)
 		self.assertEqual(payment_txn.status, PaymentStatus.CREATED)
-		self.assertEqual(str(payment_txn.amount), "150.00")
+		self.assertEqual(str(payment_txn.amount), "153.00")
+
+	def test_calculate_cart_commission_share_splits_equally(self):
+		self.assertEqual(calculate_cart_commission_share(Decimal("150.00"), 2), Decimal("3.00"))
 
 	@patch("payments.views.capture_payment")
 	@patch("payments.views.fetch_payment")
@@ -168,6 +174,7 @@ class PaymentsApiFlowTests(APITestCase):
 		)
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(mock_capture_payment.call_args.kwargs["amount"], Decimal("153.00"))
 		payment_txn.refresh_from_db()
 		self.joiner_participant.refresh_from_db()
 

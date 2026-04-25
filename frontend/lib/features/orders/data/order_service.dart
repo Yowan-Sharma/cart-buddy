@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/order_model.dart';
 import '../models/order_room_models.dart';
@@ -206,13 +207,16 @@ class OrderService {
   }
 
   Future<PaymentOrderModel> createPayment(int orderId) async {
+    debugPrint('[CartBuddyPayment][api] createPayment request | order_id=$orderId');
     final response = await _dio.post(
       'payments/orders/create/',
       data: {'order_id': orderId},
     );
-    return PaymentOrderModel.fromJson(
+    final model = PaymentOrderModel.fromJson(
       Map<String, dynamic>.from(response.data as Map),
     );
+    debugPrint('[CartBuddyPayment][api] createPayment response | tx=${model.transactionId} amount=${model.amount} gateway_order=${model.gatewayOrderId}');
+    return model;
   }
 
   Future<List<dynamic>> getCampuses(int organisationId) async {
@@ -225,6 +229,7 @@ class OrderService {
     required String razorpayPaymentId,
     required String razorpaySignature,
   }) async {
+    debugPrint('[CartBuddyPayment][api] verifyPayment request | tx=$paymentTransactionId payment_id=$razorpayPaymentId signature_present=${razorpaySignature.isNotEmpty}');
     await _dio.post(
       'payments/orders/verify/',
       data: {
@@ -233,6 +238,7 @@ class OrderService {
         'razorpay_signature': razorpaySignature,
       },
     );
+    debugPrint('[CartBuddyPayment][api] verifyPayment success | tx=$paymentTransactionId');
   }
 
   String get baseUrl => _dio.options.baseUrl;

@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -59,6 +57,11 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
   List<OrderItemModel> _managerQueue = [];
   String? _myOtp;
   bool _isLoadingOtp = false;
+
+  void _logPayment(String message, [Object? extra]) {
+    final suffix = extra == null ? '' : ' | $extra';
+    debugPrint('[CartBuddyPayment][order:${widget.orderId}] $message$suffix');
+  }
 
   @override
   void initState() {
@@ -187,11 +190,27 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
     final wsUrl = '$wsBase/ws/chats/orders/${widget.orderId}/?token=$token';
 
     try {
+      await _chatSubscription?.cancel();
+      await _chatChannel?.sink.close();
+
       final channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      await channel.ready;
       final subscription = channel.stream.listen(
         _handleSocketPayload,
-        onError: (_) {},
-        onDone: () {},
+        onError: (error, stackTrace) {
+          if (!mounted) return;
+          setState(() {
+            _chatChannel = null;
+            _chatSubscription = null;
+          });
+        },
+        onDone: () {
+          if (!mounted) return;
+          setState(() {
+            _chatChannel = null;
+            _chatSubscription = null;
+          });
+        },
       );
 
       if (!mounted) {
@@ -204,7 +223,13 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
         _chatChannel = channel;
         _chatSubscription = subscription;
       });
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _chatChannel = null;
+        _chatSubscription = null;
+      });
+    }
   }
 
   void _handleSocketPayload(dynamic rawEvent) {
@@ -415,74 +440,123 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
     final user = _currentUser;
     if (order == null || user == null) return;
 
-    if (Platform.isIOS && await _isRunningOnIosSimulator()) {
-      if (!mounted) return;
-      _showToast(
-        'Use a physical iPhone',
-        'Razorpay checkout requires a real device with this Xcode version. Connect an iPhone via USB to test payments.',
-      );
-      return;
-    }
+    _logPayment('start_payment_clicked', {
+      'user_id': user.id,
+      'order_status': order.status,
+      'title': order.title,
+    });
 
     setState(() => _isPaying = true);
     try {
+      _logPayment('create_payment_request_sent');
       final payment = await ref
           .read(orderServiceProvider)
           .createPayment(widget.orderId);
+      _logPayment('create_payment_response_received', {
+        'transaction_id': payment.transactionId,
+        'amount': payment.amount,
+        'currency': payment.currency,
+        'order_id': payment.gatewayOrderId,
+        'key_present': payment.keyId.isNotEmpty,
+      });
+
+      if (payment.transactionId <= 0 ||
+          payment.gatewayOrderId.isEmpty ||
+          payment.keyId.isEmpty ||
+          payment.amount <= 0) {
+        _logPayment('invalid_payment_payload', {
+          'transaction_id': payment.transactionId,
+          'amount': payment.amount,
+          'order_id': payment.gatewayOrderId,
+          'key_len': payment.keyId.length,
+        });
+        if (!mounted) return;
+        setState(() => _isPaying = false);
+        _showToast(
+          'Invalid payment payload',
+          'Checkout payload is incomplete. Please try again.',
+        );
+        return;
+      }
+
       _pendingPaymentTransactionId = payment.transactionId;
       _paymentFlowTimeout?.cancel();
       _paymentFlowTimeout = Timer(const Duration(seconds: 25), () {
         if (!mounted || !_isPaying) return;
+        _logPayment('checkout_timeout', {'transaction_id': _pendingPaymentTransactionId});
         setState(() {
           _isPaying = false;
           _pendingPaymentTransactionId = null;
         });
         _showToast(
           'Checkout did not open',
-          'Razorpay did not respond in time. If you are on iOS simulator, use a physical iPhone.',
+          'Razorpay did not respond in time. Please try again.',
         );
       });
-      _razorpay.open({
+
+      final options = {
         'key': payment.keyId,
         'amount': payment.amount,
         'name': 'CartBuddy',
         'order_id': payment.gatewayOrderId,
         'description': 'Order payment for ${order.title}',
         'prefill': {'contact': user.phone, 'email': user.email},
+      };
+      _logPayment('checkout_open_attempt', {
+        'transaction_id': payment.transactionId,
+        'gateway_order_id': payment.gatewayOrderId,
+        'amount': payment.amount,
       });
+      _razorpay.open(options);
+      _logPayment('checkout_open_called');
     } catch (e) {
+      _logPayment('start_payment_exception', e);
       if (!mounted) return;
       setState(() => _isPaying = false);
       _showToast('Could not start payment', e.toString());
     }
   }
 
-  Future<bool> _isRunningOnIosSimulator() async {
-    try {
-      final info = await DeviceInfoPlugin().iosInfo;
-      return !info.isPhysicalDevice;
-    } catch (_) {
-      return false;
-    }
-  }
-
   Future<void> _handlePaymentSuccess(PaymentSuccessResponse response) async {
+    _logPayment('sdk_payment_success_callback', {
+      'payment_id': response.paymentId,
+      'signature_present': (response.signature ?? '').isNotEmpty,
+      'order_id': response.orderId,
+    });
     _paymentFlowTimeout?.cancel();
     final transactionId = _pendingPaymentTransactionId;
-    if (transactionId == null) return;
+    if (transactionId == null) {
+      _logPayment('missing_pending_transaction_in_success_callback');
+      return;
+    }
+
+    final paymentId = response.paymentId ?? '';
+    final signature = response.signature ?? '';
+    if (paymentId.isEmpty || signature.isEmpty) {
+      _logPayment('success_callback_missing_fields', {
+        'payment_id_empty': paymentId.isEmpty,
+        'signature_empty': signature.isEmpty,
+      });
+    }
 
     try {
+      _logPayment('verify_payment_request_sent', {
+        'transaction_id': transactionId,
+        'payment_id': paymentId,
+      });
       await ref
           .read(orderServiceProvider)
           .verifyPayment(
             paymentTransactionId: transactionId,
-            razorpayPaymentId: response.paymentId ?? '',
-            razorpaySignature: response.signature ?? '',
+            razorpayPaymentId: paymentId,
+            razorpaySignature: signature,
           );
+      _logPayment('verify_payment_success', {'transaction_id': transactionId});
       await _loadRoom();
       if (!mounted) return;
       _showToast('Payment successful', 'Your payment has been verified.');
     } catch (e) {
+      _logPayment('verify_payment_exception', e);
       if (!mounted) return;
       _showToast('Could not verify payment', e.toString());
     } finally {
@@ -496,6 +570,11 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
   }
 
   void _handlePaymentError(PaymentFailureResponse response) {
+    _logPayment('sdk_payment_error_callback', {
+      'code': response.code,
+      'message': response.message,
+      'error': response.error,
+    });
     if (!mounted) return;
     _paymentFlowTimeout?.cancel();
     setState(() {
@@ -509,6 +588,7 @@ class _OrderRoomScreenState extends ConsumerState<OrderRoomScreen>
   }
 
   void _handleExternalWalletSelected(ExternalWalletResponse response) {
+    _logPayment('sdk_external_wallet_selected', {'wallet': response.walletName});
     if (!mounted) return;
     _paymentFlowTimeout?.cancel();
     _showToast(

@@ -1,10 +1,13 @@
 import json
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 import razorpay
 from django.conf import settings
 
 from .serializers import decimal_to_paise
+
+
+COMMISSION_RATE = Decimal("0.04")
 
 
 class RazorpayConfigError(Exception):
@@ -66,6 +69,14 @@ def create_refund(*, razorpay_payment_id: str, amount: Decimal | None = None, no
     if notes:
         payload["notes"] = notes
     return client.payment.refund(razorpay_payment_id, payload)
+
+
+def calculate_cart_commission_share(cart_total: Decimal, participant_count: int) -> Decimal:
+    if cart_total <= Decimal("0.00") or participant_count <= 0:
+        return Decimal("0.00")
+
+    total_commission = (cart_total * COMMISSION_RATE).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return (total_commission / Decimal(participant_count)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def verify_webhook_signature(payload_bytes: bytes, signature: str) -> None:
